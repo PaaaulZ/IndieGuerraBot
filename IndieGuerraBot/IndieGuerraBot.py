@@ -78,23 +78,6 @@ def getPlayCount(artist,track):
 
     return -3
 
-#def tmpAssocCity():
-
-#    mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
-#    mycursor = mydb.cursor(buffered=True)
-#    mycursor2 = mydb.cursor(buffered=True)
-#    mycursor.execute("SELECT id,city FROM hits")
-
-#    for res in mycursor:
-#        locationID = getLocationID(res[1])
-#        mycursor2.execute("UPDATE hits SET locationID = " + str(locationID) + " WHERE id = '" + res[0] + "'")
-
-#    mydb.commit()
-#    mydb.close()
-
-#    return
-
-
 def updateScore():
 
     ignore = False
@@ -131,7 +114,7 @@ def updateScore():
                 mydb.commit()
             elif res[0] > 0 and playCount < 0:
                 # If I had a playCount but now I have not warn me.
-                print("WARNING: " + artist + " - " + title + " was " + str(res[0]) + " but now is " + playCount)
+                print("WARNING: " + artist + " - " + title + " was " + str(res[0]) + " but now is " + str(playCount))
 
             ignore = True
 
@@ -154,5 +137,4 @@ def updateScore():
     return
 
 
-tmpAssocCity()
-#updateScore()
+updateScore()

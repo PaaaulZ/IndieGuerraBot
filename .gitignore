@@ -340,6 +340,7 @@ ASALocalRun/
 healthchecksdb
 IndieGuerraBot/config.json
 IndieGuerraBot/found4map.json
+IndieGuerraBot/json4map.json
 IndieGuerraBot.sln
 IndieGuerraBot.pyproj
 ___NOTES.txt

@@ -78,6 +78,72 @@ def getPlayCount(artist,track):
 
     return -3
 
+def generateOwners():
+
+    # check if province is free before updating
+
+    mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
+    rankingCursor = mydb.cursor(buffered=True)
+    rankingCursor.execute("TRUNCATE TABLE provinceOwners")
+    rankingCursor.execute("SELECT artist,l.province,sum(playCount) FROM `hits` AS h INNER JOIN locations AS l ON h.locationID = l.id WHERE locationID > 0 GROUP BY artist,l.province ORDER BY sum(playCount) DESC")
+    insertCursor = mydb.cursor(buffered=True)
+
+    ownedProvinces = []
+
+    for resRank in rankingCursor:
+        sql = "INSERT INTO provinceOwners (province, owner) VALUES (%s, %s)"
+        val = (resRank[1],resRank[0])
+        if not resRank[1] in ownedProvinces:
+            insertCursor.execute(sql,val)
+            ownedProvinces.append(resRank[1])
+
+    mydb.commit()
+
+    return
+
+def drawMap():
+
+    mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
+    mapCursor = mydb.cursor()
+    mapCursor.execute("SELECT province,owner FROM provinceOwners")
+
+    fixedColors = {'Brunori Sas':'#238b45','Calcutta':'#88419d','Carl Brave':'#4ed3b3','CLAVDIO':'#ef6548','Coez':'#3690c0','Eugenio in via di gioia':'#41ab5d','Ex-Otago':'#fc4e2a','Frah Quintale':'#800026','Gazzelle':'#737373','I cani':'#d9f0d3','La Municipàl':'#ffff33','Liberato':'#8c510a','Motta':'#7171c6','Pinguini Tattici Nucleari':'#542788','Scarda':'#000000','The Zen Circus':'#e31c2c','Thegiornalisti':'#fdb462','Tommy toxxic':'#ffffbf'}
+
+    artists = []
+    pathsArray = []
+
+    provinceBox = {}
+    
+    divId = 0
+    for resMap in mapCursor:
+        artists.append(resMap[1])
+
+    for artist in artists:
+        mapCursor = mydb.cursor()
+        mapCursor.execute(f"SELECT province FROM provinceOwners WHERE owner = '{artist}'")
+        for resMap in mapCursor:
+            pathsArray.append(resMap[0])
+
+        city = {'div':f'#box{divId}', 'label':artist, 'paths': pathsArray}
+        if artist in fixedColors:
+            colorTMP = fixedColors[artist]
+        else:
+            print("NO COLOR FOR {artist}")
+            exit()
+
+        provinceBox[colorTMP] = city
+        divId += 1
+        pathsArray = []
+
+    root = {'groups':provinceBox}
+  
+    jsonForMap = open('json4map.json','w')
+    json.dump(root,jsonForMap)
+
+
+    return
+
+
 def updateScore():
 
     ignore = False
@@ -102,10 +168,10 @@ def updateScore():
 
         playCount = getPlayCount(artist,title)
 
-        mycursor = mydb.cursor()
-        mycursor.execute("SELECT playCount FROM hits WHERE id = '" + id + "'")
+        existsCursor = mydb.cursor()
+        existsCursor.execute("SELECT playCount FROM hits WHERE id = '" + id + "'")
 
-        for res in mycursor:
+        for res in existsCursor:
             # Already exists, update
             if playCount > res[0]:
                 # Got more playCount (test)
@@ -125,9 +191,9 @@ def updateScore():
 
         sql = "INSERT INTO hits (id, artist, title, city, playCount, locationID) VALUES (%s, %s, %s, %s, %s,%s)"
         val = (id, artist, title, city, playCount, locationID)
-        mycursor = mydb.cursor()
+        existsCursor = mydb.cursor()
         
-        mycursor.execute(sql, val)
+        existsCursor.execute(sql, val)
         mydb.commit()
         
         print("\t Added " + title + " by " + artist)
@@ -137,4 +203,6 @@ def updateScore():
     return
 
 
-updateScore()
+#updateScore()
+#generateOwners()
+drawMap()

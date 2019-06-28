@@ -4,6 +4,7 @@ import os
 import mysql.connector
 import hashlib
 
+
 def loadConfig():
 
     if not os.path.exists('config.json'):
@@ -202,7 +203,6 @@ def updateScore():
 
     return
 
-
-#updateScore()
-#generateOwners()
+updateScore()
+generateOwners()
 drawMap()

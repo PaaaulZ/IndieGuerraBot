@@ -1,18 +1,31 @@
 # IndieGuerraBot
-## A simple script like ItaliaGuerraBot but with indie songs.
+## Italian Indie artists love using city names in lyrics. What if this was a war, who is currently owning each province?
+
+### What is this? / How does this work?
+
+The goal for this project is to make italian indie artists "fight" for a province.
+City names found in Italian indie songs lyrics get placed [on a map](http://paaaulz.altervista.org/indiemap/), the song with most playcount on Spotify wins and gets the province.
+Every month the process starts all over again and hopefully some new song comes out and claims a province.
+
+**This project relys on [IndieMap](https://github.com/PaaaulZ/IndieMap) for data**
+
+### REQUIREMENTS
+
+* A working and populated [IndieMap](https://github.com/PaaaulZ/IndieMap) database.
+* A Spotify API key.
+* [Mozilla Firefox](https://www.mozilla.org/it/firefox/new/)
+* [Gecko Driver](https://github.com/mozilla/geckodriver/releases)
+* Python libraries that you can import by using **pip3 install -r requirements.txt**
 
 
-### Description
+### INSTRUCTIONS
 
-The goal for this project was to make italian indie artists "fight" for a province. City names found in italian indie songs lyrics get placed on a map, the song with most playcount on Spotify wins and gets the province.
+* Create your database by importing the attached indieguerrabot.sql.
+* Edit config.json with your settings.
+* Place the previously installed geckodriver binary (geckodriver.exe on Windows) in the same folder of IndieGuerraBot.py.
+* Rename colors.json.empty to colors.json
 
-**This project is almost 100% tied to [IndieMap](https://github.com/PaaaulZ/IndieMap)**
+### THANKS TO:
 
-### NOTE:
-
-I'm not actively working on this project anymore. Spotify does not have a public API that allows us to get playcount for a song and the unofficial API that I used stopped working.
-I'm currently trying to make my own private API. I'm trying with memory reading, screen reading softwares and other Spotify "forks" in Python.
-
-I'll start working on this when I find a good API.
-
-
+* [t4ils](https://t4ils.dev/) - evilarceus on [GitHub](https://github.com/evilarceus) for [sp-playcount-librespot](https://github.com/evilarceus/sp-playcount-librespot) and for hosting the public API.
+* [MapChart](https://mapchart.net/) for providing an easy way to color and tag Italian provinces.

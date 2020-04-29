@@ -3,206 +3,303 @@ import json
 import os
 import mysql.connector
 import hashlib
+import logging
+import random
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as ec
 
-
-def loadConfig():
+def load_config():
 
     if not os.path.exists('config.json'):
-        print("Cannot find config.json")
+        log.info("Cannot find config.json")
         exit()
 
-    fConfig = open('config.json','r')
+    f_config = open('config.json','r')
 
-    return json.load(fConfig)
+    return json.load(f_config)
 
-config = loadConfig()
+config = load_config()
+fh = logging.FileHandler('indieguerrabot.log')
+log = logging.getLogger('IndieGuerraBot')
 
-def getLocationID(cityName):
+def main():
+
+    logging.basicConfig(format='%(asctime)s - [%(levelname)s]: %(message)s')
+    log.setLevel(logging.DEBUG)
+    log.addHandler(fh)
+
+    update_score()
+    generate_owners()
+    result_json = json_for_map()
+    download_map(result_json)
+
+def getlocation_ID(cityName):
 
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
-    mycursor = mydb.cursor()
-    mycursor.execute("SELECT id FROM locations WHERE city = '" + cityName + "'")
+    my_cursor = mydb.cursor()
+    my_cursor.execute("SELECT id FROM locations WHERE city = '" + cityName + "'")
 
-    locationID = -1
-    for res in mycursor:
-        locationID = res[0]
+    location_ID = -1
+    for res in my_cursor:
+        location_ID = res[0]
         break
     
     mydb.close()
     
-    return locationID
+    return location_ID
 
-def getSpotifyAlbumID(artist,track,next = ''):
+def getspotify_album_ID(artist,track,next = ''):
 
     if next is None or next == '':
-        url = "https://api.spotify.com/v1/search?q=" + track.lower().rstrip() + " " + artist + "&type=track&limit=50"
+        url = f"https://api.spotify.com/v1/search?q={track.lower().rstrip()} {artist}&type=track&limit=50"
     else:
         url = next
     
     r = requests.get(url, headers={"Accept":"application/json","Content-Type":"application/json","Authorization":"Bearer " + config['spotifyApiKey']})
     if r.status_code != 200:
-        print("Unable to search track from Spotify ",r.status_code)
-        exit()
+        log.warning(f"Unable to search {artist} - {track} from Spotify {r.status_code}")
+        return "NO_MATCH"
+        #exit()
 
-    tracksJson = json.loads(r.text)
+    tracks_json = json.loads(r.text)
 
-    for i in range(len(tracksJson['tracks']['items'])):       
+    for i in range(len(tracks_json['tracks']['items'])):       
 
         # Check if artist present
-        for j in range(len(tracksJson['tracks']['items'][i]['artists'])):
-            if tracksJson['tracks']['items'][i]['artists'][j]['name'].lower().rstrip() == artist.lower().rstrip().encode('utf-8').decode('utf-8') or artist.lower().rstrip().encode('utf-8').decode('utf-8') in tracksJson['tracks']['items'][i]['name'] or artist.lower().rstrip().encode('utf-8').decode('utf-8') in tracksJson['tracks']['items'][i]['artists'][j]['name'].lower().rstrip():
-                return tracksJson['tracks']['items'][i]['album']['id']
+        for j in range(len(tracks_json['tracks']['items'][i]['artists'])):
+            if tracks_json['tracks']['items'][i]['artists'][j]['name'].lower().rstrip() == artist.lower().rstrip().encode('utf-8').decode('utf-8') or artist.lower().rstrip().encode('utf-8').decode('utf-8') in tracks_json['tracks']['items'][i]['name'] or artist.lower().rstrip().encode('utf-8').decode('utf-8') in tracks_json['tracks']['items'][i]['artists'][j]['name'].lower().rstrip():
+                return tracks_json['tracks']['items'][i]['album']['id']
 
-        #if tracksJson['tracks']['next'] != '':
-        #    getSpotifyAlbumID(artist,track,tracksJson['tracks']['next'])
+        #if tracks_json['tracks']['next'] != '':
+        #    getspotify_album_ID(artist,track,tracks_json['tracks']['next'])
 
     return "NO_MATCH"
 
-def getPlayCount(artist,track):
+def get_play_count(artist,track):
 
-    spotifyAlbumID = getSpotifyAlbumID(artist,track)
+    spotify_album_ID = getspotify_album_ID(artist,track)
 
-    if spotifyAlbumID == 'NO_MATCH':
-        print("NO ALBUM ID FOR " + track + " BY " + artist)
+    if spotify_album_ID == 'NO_MATCH':
+        log.info(f"NO ALBUM ID FOR {track} BY {artist}")
         return -1
 
-    r = requests.get("https://t4ils.dev/api/beta/albumPlayCount?albumid=" + spotifyAlbumID)
-    albumPlayCountJson = json.loads(r.text)
+    r = requests.get(f"https://api.t4ils.dev/albumPlayCount?albumid={spotify_album_ID}")
+    if r.status_code != 200:
+        log.warning(f"Unable to get playcount for {track} by {artist} ({r.status_code})")
+        return -2
 
-    if not albumPlayCountJson['success']:
-        print("Cannot get album playcount for " + artist + "/" + track + "/" + spotifyAlbumID)
+    album_play_count_json = json.loads(r.text)
+
+    if not album_play_count_json['success']:
+        log.info(f"Cannot get album play_count for {artist}/{track}/{spotify_album_ID}")
         return -2
     
-    for i in range(len(albumPlayCountJson['data'])):
-        if albumPlayCountJson['data'][i]['name'].lower().rstrip() == track.lower().rstrip().encode('utf-8').decode('utf-8') or track.lower().rstrip().encode('utf-8').decode('utf-8') in albumPlayCountJson['data'][i]['name'].lower().rstrip():
-            return albumPlayCountJson['data'][i]['playcount']
+    for i in range(len(album_play_count_json['data']['discs'])):
+        for j in range(len(album_play_count_json['data']['discs'][i]['tracks'])):
+            if album_play_count_json['data']['discs'][i]['tracks'][j]['name'].lower().rstrip() == track.lower().rstrip().encode('utf-8').decode('utf-8') or track.lower().rstrip().encode('utf-8').decode('utf-8') in album_play_count_json['data']['discs'][i]['tracks'][j]['name'].lower().rstrip():
+                return album_play_count_json['data']['discs'][i]['tracks'][j]['playcount']
 
     return -3
 
-def generateOwners():
+def generate_owners():
 
     # check if province is free before updating
 
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
-    rankingCursor = mydb.cursor(buffered=True)
-    rankingCursor.execute("TRUNCATE TABLE provinceOwners")
-    rankingCursor.execute("SELECT artist,l.province,sum(playCount) FROM `hits` AS h INNER JOIN locations AS l ON h.locationID = l.id WHERE locationID > 0 GROUP BY artist,l.province ORDER BY sum(playCount) DESC")
-    insertCursor = mydb.cursor(buffered=True)
+    ranking_cursor = mydb.cursor(buffered=True)
+    ranking_cursor.execute("TRUNCATE TABLE provinceOwners")
+    ranking_cursor.execute("SELECT h.artist,l.province,sum(h.playCount) FROM `hits` AS h INNER JOIN locations AS l ON h.locationID = l.id WHERE h.locationID > 0 AND h.playCount > 0 GROUP BY artist,l.province ORDER BY sum(playCount) DESC")
+    insert_cursor = mydb.cursor(buffered=True)
 
-    ownedProvinces = []
+    owned_provinces = []
 
-    for resRank in rankingCursor:
+    for res_rank in ranking_cursor:
         sql = "INSERT INTO provinceOwners (province, owner) VALUES (%s, %s)"
-        val = (resRank[1],resRank[0])
-        if not resRank[1] in ownedProvinces:
-            insertCursor.execute(sql,val)
-            ownedProvinces.append(resRank[1])
+        val = (res_rank[1],res_rank[0])
+        log.info(f"Setting {res_rank[0]} owner of {res_rank[1]} with {res_rank[2]} playcount!")
+        if not res_rank[1] in owned_provinces:
+            insert_cursor.execute(sql,val)
+            owned_provinces.append(res_rank[1])
 
     mydb.commit()
 
     return
 
-def drawMap():
+def json_for_map():
 
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
-    mapCursor = mydb.cursor()
-    mapCursor.execute("SELECT province,owner FROM provinceOwners")
+    map_cursor = mydb.cursor()
+    map_cursor.execute("SELECT province,owner FROM provinceOwners")
 
-    fixedColors = {'Brunori Sas':'#238b45','Calcutta':'#88419d','Carl Brave':'#4ed3b3','CLAVDIO':'#ef6548','Coez':'#3690c0','Eugenio in via di gioia':'#41ab5d','Ex-Otago':'#fc4e2a','Frah Quintale':'#800026','Gazzelle':'#737373','I cani':'#d9f0d3','La Municipàl':'#ffff33','Liberato':'#8c510a','Motta':'#7171c6','Pinguini Tattici Nucleari':'#542788','Scarda':'#000000','The Zen Circus':'#e31c2c','Thegiornalisti':'#fdb462','Tommy toxxic':'#ffffbf'}
+    if not os.path.isfile('colors.json'):
+        log.critical("Unable to find colors.json")
+        return
+
+    colors_json_fp = open('colors.json','r')
+    saved_colors = json.load(colors_json_fp)
+
+    final_colors = {}
 
     artists = []
-    pathsArray = []
+    paths_array = []
 
-    provinceBox = {}
+    province_box = {}
     
     divId = 0
-    for resMap in mapCursor:
-        artists.append(resMap[1])
+    used_colors = 0
+
+    number_of_colors = 107
+    color_palette = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)]) for i in range(number_of_colors)]
+
+    for res_map in map_cursor:
+        artist_tmp = res_map[1]
+        artists.append(artist_tmp)
+        if artist_tmp not in saved_colors:
+            saved_colors['colors'].append({artist_tmp: color_palette[used_colors]})
+            final_colors[artist_tmp] = color_palette[used_colors]
+            used_colors += 1
+        else:
+            final_colors[artist_tmp] = saved_colors[artist_tmp]
+
+    # Update JSON if we added new colors
+
+    if used_colors > 0:
+        colors_json_fp.close()
+        colors_json_fp = open('colors.json', 'w')
+        json.dump(saved_colors, colors_json_fp, indent = 2)
+
 
     for artist in artists:
-        mapCursor = mydb.cursor()
-        mapCursor.execute(f"SELECT province FROM provinceOwners WHERE owner = '{artist}'")
-        for resMap in mapCursor:
-            pathsArray.append(resMap[0])
+        map_cursor = mydb.cursor()
+        map_cursor.execute(f"SELECT province FROM provinceOwners WHERE owner = '{artist}'")
+        for res_map in map_cursor:
+            paths_array.append(res_map[0])
 
-        city = {'div':f'#box{divId}', 'label':artist, 'paths': pathsArray}
-        if artist in fixedColors:
-            colorTMP = fixedColors[artist]
+        city = {'div':f'#box{divId}', 'label':artist.title(), 'paths': paths_array}
+        if artist in final_colors:
+            color_TMP = final_colors[artist]
         else:
-            print("NO COLOR FOR {artist}")
+            log.info(f"NO COLOR FOR {artist}")
             exit()
 
-        provinceBox[colorTMP] = city
+        province_box[color_TMP] = city
         divId += 1
-        pathsArray = []
+        paths_array = []
 
-    root = {'groups':provinceBox}
-  
-    jsonForMap = open('json4map.json','w')
-    json.dump(root,jsonForMap)
+    root = {'groups':province_box}
 
+    final_json = json.dumps(root)
+
+    print(final_json)
+
+    return final_json
+
+def download_map(json_map):
+
+    # Init Firefox/Selenium Object
+    firefox_profile = webdriver.FirefoxProfile()
+    firefox_options = webdriver.FirefoxOptions()
+    firefox_options.add_argument('--headless')
+    firefox_profile.set_preference('browser.download.folderList', 2) # Download in custom location
+    firefox_profile.set_preference('browser.download.manager.showWhenStarting', False) # Don't show the download window
+    firefox_profile.set_preference('browser.download.dir', os.getcwd()) # Download location
+    firefox_profile.set_preference('browser.download.downloadDir', os.getcwd()) # Download location
+    firefox_profile.set_preference('browser.download.defaultFolder', os.getcwd()) # Download location
+    firefox_profile.set_preference('browser.helperApps.neverAsk.saveToDisk', 'image/png') # Download .png files without showing the download prompt
+
+    browser = webdriver.Firefox(options=firefox_options, firefox_profile=firefox_profile)
+    browser.get('https://mapchart.net/italy.html')
+
+    element = browser.find_element_by_id('downup')
+    browser.execute_script("arguments[0].click();", element) # HACK: Make downup clickable ignoring "<div class=loader> blocking it".
+
+    condition = ec.visibility_of_element_located((By.ID, 'uploadData'))
+    WebDriverWait(browser, 15).until(condition)
+    browser.find_element_by_id('uploadData').send_keys(json_map)
+
+    browser.find_element_by_id('upload').click()
+    
+    element = browser.find_element_by_id('convert')
+    browser.execute_script("arguments[0].click();", element) # HACK: Make convert clickable ignoring "<div class=loader> blocking it".
+
+    condition = ec.visibility_of_element_located((By.ID, 'download'))
+    WebDriverWait(browser, 30).until(condition)
+
+    # Remove old map before downloading the new one.
+
+    if os.path.isfile('map.png'):
+        os.remove('map.png')
+
+    browser.find_element_by_id('download').click()
+    browser.close()
+
+    # Rename downloaded file
+
+    for single_file in os.listdir():
+        if '.png' in single_file:
+            os.rename(single_file,'map.png')
 
     return
 
 
-def updateScore():
+def update_score():
 
     ignore = False
 
-    if not os.path.exists('found4map.json'):
-        print("Cannot find found4map.json")
-        exit()
-
-    fIN = open('found4map.json',mode="r", encoding="utf-8")
-
-    jsonMap = json.load(fIN)
-
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
+    # mydb_select is a connection handle only for the select statement to prevent the "Unread results found" error.
+    mydb_select = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase']) 
 
-    for fakeIndex in jsonMap:
-        artist = jsonMap[str(fakeIndex)][0]['artist'].rstrip()
-        title = jsonMap[str(fakeIndex)][0]['title'].rstrip()
-        city = jsonMap[str(fakeIndex)][0]['city'].rstrip()
+    songslocations_cursor = mydb_select.cursor()
+    songslocations_cursor.execute(f"SELECT a.artist_name,l.song_title,l.song_city FROM {config['indiemap_db']}.songslocations AS l LEFT JOIN {config['indiemap_db']}.artists AS a ON a.artist_id = l.song_artist_id")
+
+    for songlocation in songslocations_cursor:
+        artist = songlocation[0].rstrip()
+        title = songlocation[1].rstrip()
+        city = songlocation[2].rstrip()
         id = artist + "|" + title + "|" + city
         id = hashlib.md5(id.encode('utf-8')).hexdigest()
-        locationID = getLocationID(city)
 
-        playCount = getPlayCount(artist,title)
+        location_ID = getlocation_ID(city)
+        play_count = get_play_count(artist,title)
 
-        existsCursor = mydb.cursor()
+        existsCursor = mydb.cursor(buffered=True)
         existsCursor.execute("SELECT playCount FROM hits WHERE id = '" + id + "'")
 
         for res in existsCursor:
             # Already exists, update
-            if playCount > res[0]:
-                # Got more playCount (test)
-                updateCursor = mydb.cursor()
-                updateCursor.execute("UPDATE hits SET playCount = " + str(playCount) + " WHERE id = '" + id + "'")
+            if play_count > res[0]:
+                # Got more play_count (test)
+                update_cursor = mydb.cursor(buffered=True)
+                update_cursor.execute("UPDATE hits SET playCount = " + str(play_count) + " WHERE id = '" + id + "'")
                 mydb.commit()
-            elif res[0] > 0 and playCount < 0:
-                # If I had a playCount but now I have not warn me.
-                print("WARNING: " + artist + " - " + title + " was " + str(res[0]) + " but now is " + str(playCount))
+            elif res[0] > 0 and play_count < 0:
+                # If I had a play_count but now I have not, warn me.
+                log.warning(f"{artist} {title} was {str(res[0])} but now is {str(play_count)}. play_count WAS NOT UPDATED!")
+                ignore = True
 
-            ignore = True
-
-            print("\t Updated " + title + " by " + artist)
+            log.info(f"Updated {title} by {artist}")
         if ignore:
+            ignore = False
             continue
 
 
         sql = "INSERT INTO hits (id, artist, title, city, playCount, locationID) VALUES (%s, %s, %s, %s, %s,%s)"
-        val = (id, artist, title, city, playCount, locationID)
-        existsCursor = mydb.cursor()
+        val = (id, artist, title, city, play_count, location_ID)
+        insert_cursor = mydb.cursor()
         
-        existsCursor.execute(sql, val)
+        insert_cursor.execute(sql, val)
         mydb.commit()
         
-        print("\t Added " + title + " by " + artist)
+        log.info(f"Added {title} by {artist}")
 
-        mydb.close()
+    mydb.close()
 
     return
 
-updateScore()
-generateOwners()
-drawMap()
+if __name__ == '__main__':
+    main()

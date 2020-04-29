@@ -339,8 +339,10 @@ ASALocalRun/
 # BeatPulse healthcheck temp database
 healthchecksdb
 IndieGuerraBot/config.json
-IndieGuerraBot/found4map.json
-IndieGuerraBot/json4map.json
+IndieGuerraBot/geckodriver.exe
+IndieGuerraBot/geckodriver.log
+IndieGuerraBot/map.png
+IndieGuerraBot/colors.json
 IndieGuerraBot.sln
 IndieGuerraBot.pyproj
 ___NOTES.txt

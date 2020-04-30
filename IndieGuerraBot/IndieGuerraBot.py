@@ -5,6 +5,7 @@ import mysql.connector
 import hashlib
 import logging
 import random
+from time import sleep
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -19,8 +20,10 @@ def load_config():
         exit()
 
     f_config = open('config.json','r')
+    ret_config = json.load(f_config)
+    f_config.close()
 
-    return json.load(f_config)
+    return ret_config
 
 config = load_config()
 fh = logging.FileHandler('indieguerrabot.log')
@@ -29,11 +32,17 @@ log = logging.getLogger('IndieGuerraBot')
 def main():
 
     logging.basicConfig(format='%(asctime)s - [%(levelname)s]: %(message)s')
-    log.setLevel(logging.DEBUG)
+    if config['logLevel'] == '' or config['logLevel'] == 0:
+        log.setLevel(logging.ERROR)
+    elif config['logLevel'] == 1:
+        log.setLevel(logging.WARNING)
+    else:
+        log.setLevel(logging.DEBUG)
+
     log.addHandler(fh)
 
-    update_score()
-    generate_owners()
+    # update_score()
+    # generate_owners()
     result_json = json_for_map()
     download_map(result_json)
 
@@ -47,44 +56,40 @@ def getlocation_ID(cityName):
     for res in my_cursor:
         location_ID = res[0]
         break
-    
+
     mydb.close()
-    
+
     return location_ID
 
-def getspotify_album_ID(artist,track,next = ''):
+def get_spotify_album_ID(artist,track):
 
-    if next is None or next == '':
-        url = f"https://api.spotify.com/v1/search?q={track.lower().rstrip()} {artist}&type=track&limit=50"
-    else:
-        url = next
-    
+    url = f"https://api.spotify.com/v1/search?q={track.lower().rstrip()} {artist}&type=track&limit=50"
+
     r = requests.get(url, headers={"Accept":"application/json","Content-Type":"application/json","Authorization":"Bearer " + config['spotifyApiKey']})
-    if r.status_code != 200:
+    if r.status_code == 401:
+        raise Exception("Spotify error 401, expired API key?")
+    elif r.status_code != 200:
         log.warning(f"Unable to search {artist} - {track} from Spotify {r.status_code}")
         return "NO_MATCH"
-        #exit()
 
     tracks_json = json.loads(r.text)
 
-    for i in range(len(tracks_json['tracks']['items'])):       
+    for i in range(len(tracks_json['tracks']['items'])):
 
         # Check if artist present
         for j in range(len(tracks_json['tracks']['items'][i]['artists'])):
             if tracks_json['tracks']['items'][i]['artists'][j]['name'].lower().rstrip() == artist.lower().rstrip().encode('utf-8').decode('utf-8') or artist.lower().rstrip().encode('utf-8').decode('utf-8') in tracks_json['tracks']['items'][i]['name'] or artist.lower().rstrip().encode('utf-8').decode('utf-8') in tracks_json['tracks']['items'][i]['artists'][j]['name'].lower().rstrip():
                 return tracks_json['tracks']['items'][i]['album']['id']
 
-        #if tracks_json['tracks']['next'] != '':
-        #    getspotify_album_ID(artist,track,tracks_json['tracks']['next'])
-
     return "NO_MATCH"
 
 def get_play_count(artist,track):
 
-    spotify_album_ID = getspotify_album_ID(artist,track)
+    spotify_album_ID = get_spotify_album_ID(artist,track)
 
     if spotify_album_ID == 'NO_MATCH':
-        log.info(f"NO ALBUM ID FOR {track} BY {artist}")
+        # Cannot find album id, return code = -1
+        log.info(f"No album id for {track} by {artist}, cannot get playcount")
         return -1
 
     r = requests.get(f"https://api.t4ils.dev/albumPlayCount?albumid={spotify_album_ID}")
@@ -95,19 +100,21 @@ def get_play_count(artist,track):
     album_play_count_json = json.loads(r.text)
 
     if not album_play_count_json['success']:
-        log.info(f"Cannot get album play_count for {artist}/{track}/{spotify_album_ID}")
+        # Cannot get playcount, return code = -2
+        log.warning(f"Cannot get album play_count for {track} by {artist} on albumid {spotify_album_ID}")
         return -2
-    
+
     for i in range(len(album_play_count_json['data']['discs'])):
         for j in range(len(album_play_count_json['data']['discs'][i]['tracks'])):
             if album_play_count_json['data']['discs'][i]['tracks'][j]['name'].lower().rstrip() == track.lower().rstrip().encode('utf-8').decode('utf-8') or track.lower().rstrip().encode('utf-8').decode('utf-8') in album_play_count_json['data']['discs'][i]['tracks'][j]['name'].lower().rstrip():
                 return album_play_count_json['data']['discs'][i]['tracks'][j]['playcount']
 
+    # Other error, return code -3 (ex: found album, success api call but can't match artist/title in album)
     return -3
 
 def generate_owners():
 
-    # check if province is free before updating
+    log.info("Generating province owners")
 
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
     ranking_cursor = mydb.cursor(buffered=True)
@@ -120,71 +127,86 @@ def generate_owners():
     for res_rank in ranking_cursor:
         sql = "INSERT INTO provinceOwners (province, owner) VALUES (%s, %s)"
         val = (res_rank[1],res_rank[0])
-        log.info(f"Setting {res_rank[0]} owner of {res_rank[1]} with {res_rank[2]} playcount!")
+        log.info(f"Setting {res_rank[0]} owner of {res_rank[1]} with {res_rank[2]} playcount")
         if not res_rank[1] in owned_provinces:
             insert_cursor.execute(sql,val)
             owned_provinces.append(res_rank[1])
 
     mydb.commit()
 
+    log.info("Province owners generated")
+
     return
 
 def json_for_map():
+
+    log.info("Generating JSON for map download")
 
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
     map_cursor = mydb.cursor()
     map_cursor.execute("SELECT province,owner FROM provinceOwners")
 
     if not os.path.isfile('colors.json'):
-        log.critical("Unable to find colors.json")
-        return
+        log.critical("Unable to find colors.json, exiting.")
+        raise Exception("Unable to find colors.json, exiting.")
 
+    # Opening colors.json to fetch pre-assigned colors.
     colors_json_fp = open('colors.json','r')
     saved_colors = json.load(colors_json_fp)
 
     final_colors = {}
+    province_box = {}
 
     artists = []
     paths_array = []
 
-    province_box = {}
-    
     divId = 0
     used_colors = 0
 
+    # Worst case we need a color for every province so we generate a palette of 107 random colors
     number_of_colors = 107
     color_palette = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)]) for i in range(number_of_colors)]
 
     for res_map in map_cursor:
+        # Get a color for every province owner (pre-assigned or new random color)
         artist_tmp = res_map[1]
         artists.append(artist_tmp)
         if artist_tmp not in saved_colors:
+            # New random color
+            log.debug(f"{artist_tmp} has no color pre-assigned, new color will be {color_palette[used_colors]}")
             saved_colors['colors'].append({artist_tmp: color_palette[used_colors]})
             final_colors[artist_tmp] = color_palette[used_colors]
             used_colors += 1
         else:
+            # Pre-assigned color
+            log.debug(f"{artist_tmp} has pre-assigned color {saved_colors[artist_tmp]}")
             final_colors[artist_tmp] = saved_colors[artist_tmp]
 
     # Update JSON if we added new colors
 
     if used_colors > 0:
+        # Found new colors, update colors.json
         colors_json_fp.close()
         colors_json_fp = open('colors.json', 'w')
         json.dump(saved_colors, colors_json_fp, indent = 2)
+        colors_json_fp.close()
+        log.debug(f"Added {used_colors} new colors")
 
 
     for artist in artists:
+        # Get province for every owner
+        # TODO: Do we really need both this and the upper query?
+
         map_cursor = mydb.cursor()
         map_cursor.execute(f"SELECT province FROM provinceOwners WHERE owner = '{artist}'")
         for res_map in map_cursor:
             paths_array.append(res_map[0])
 
         city = {'div':f'#box{divId}', 'label':artist.title(), 'paths': paths_array}
-        if artist in final_colors:
-            color_TMP = final_colors[artist]
-        else:
-            log.info(f"NO COLOR FOR {artist}")
-            exit()
+
+        assert artist in final_colors, f"No color for {artist}???"
+
+        color_TMP = final_colors[artist]
 
         province_box[color_TMP] = city
         divId += 1
@@ -194,24 +216,35 @@ def json_for_map():
 
     final_json = json.dumps(root)
 
-    print(final_json)
+    log.info("JSON generated.")
 
     return final_json
 
+
 def download_map(json_map):
 
-    # Init Firefox/Selenium Object
-    firefox_profile = webdriver.FirefoxProfile()
-    firefox_options = webdriver.FirefoxOptions()
-    firefox_options.add_argument('--headless')
-    firefox_profile.set_preference('browser.download.folderList', 2) # Download in custom location
-    firefox_profile.set_preference('browser.download.manager.showWhenStarting', False) # Don't show the download window
-    firefox_profile.set_preference('browser.download.dir', os.getcwd()) # Download location
-    firefox_profile.set_preference('browser.download.downloadDir', os.getcwd()) # Download location
-    firefox_profile.set_preference('browser.download.defaultFolder', os.getcwd()) # Download location
-    firefox_profile.set_preference('browser.helperApps.neverAsk.saveToDisk', 'image/png') # Download .png files without showing the download prompt
+    log.info("Starting map download")
 
-    browser = webdriver.Firefox(options=firefox_options, firefox_profile=firefox_profile)
+    # Init Chrome/Selenium Object
+    chrome_options = webdriver.ChromeOptions()
+
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--window-size=1920x1080")
+    chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--verbose')
+    chrome_options.add_experimental_option("prefs", {
+            "download.default_directory": os.getcwd(),
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "safebrowsing_for_trusted_sources_enabled": False,
+            "safebrowsing.enabled": False
+    })
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--disable-software-rasterizer')
+
+    browser = webdriver.Chrome(options=chrome_options)
     browser.get('https://mapchart.net/italy.html')
 
     element = browser.find_element_by_id('downup')
@@ -219,10 +252,20 @@ def download_map(json_map):
 
     condition = ec.visibility_of_element_located((By.ID, 'uploadData'))
     WebDriverWait(browser, 15).until(condition)
-    browser.find_element_by_id('uploadData').send_keys(json_map)
+    uploadDataTextArea = browser.find_element_by_id('uploadData')
+    browser.execute_script(f"arguments[0].value = '{json_map}'", uploadDataTextArea) # Changing the height of the final image
 
     browser.find_element_by_id('upload').click()
-    
+
+    element = browser.find_element_by_id('canvas1')
+    browser.execute_script(f"arguments[0].width = {config['mapImageWidth']}", element) # Changing the height of the final image
+    browser.execute_script(f"arguments[0].height = {config['mapImageHeight']}", element) # Changing the height of the final image
+
+    if config['hideMapColorLegend']:
+        # Hide default legend if you want to draw your own
+        element = browser.find_element_by_id('disableLegend')
+        browser.execute_script("arguments[0].click();", element) # HACK: Make disableLegend clickable ignoring "<div class=modal-backdrop fade in> blocking it".
+
     element = browser.find_element_by_id('convert')
     browser.execute_script("arguments[0].click();", element) # HACK: Make convert clickable ignoring "<div class=loader> blocking it".
 
@@ -235,6 +278,10 @@ def download_map(json_map):
         os.remove('map.png')
 
     browser.find_element_by_id('download').click()
+
+    # Arbitrary wait because Chrome loves closing before finishing the download...
+    log.debug("Sleeping 5 seconds to allow Chrome to finish the download")
+    sleep(5)
     browser.close()
 
     # Rename downloaded file
@@ -243,16 +290,22 @@ def download_map(json_map):
         if '.png' in single_file:
             os.rename(single_file,'map.png')
 
+    if os.path.isfile('map.png'):
+        log.info('Map saved as map.png')
+    else:
+        log.error('Cannot find map.png, map not downloaded?')
+
     return
 
-
 def update_score():
+
+    log.info("Updating playcounts")
 
     ignore = False
 
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
-    # mydb_select is a connection handle only for the select statement to prevent the "Unread results found" error.
-    mydb_select = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase']) 
+    # HACK: mydb_select is a connection handle only for the select statement to prevent the "Unread results found" error.
+    mydb_select = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
 
     songslocations_cursor = mydb_select.cursor()
     songslocations_cursor.execute(f"SELECT a.artist_name,l.song_title,l.song_city FROM {config['indiemap_db']}.songslocations AS l LEFT JOIN {config['indiemap_db']}.artists AS a ON a.artist_id = l.song_artist_id")
@@ -277,27 +330,29 @@ def update_score():
                 update_cursor = mydb.cursor(buffered=True)
                 update_cursor.execute("UPDATE hits SET playCount = " + str(play_count) + " WHERE id = '" + id + "'")
                 mydb.commit()
+                log.info(f"Updated {title} by {artist}")
             elif res[0] > 0 and play_count < 0:
                 # If I had a play_count but now I have not, warn me.
-                log.warning(f"{artist} {title} was {str(res[0])} but now is {str(play_count)}. play_count WAS NOT UPDATED!")
+                log.warning(f"{artist} {title} was {str(res[0])} but now is {str(play_count)}. PLAYCOUNT WAS NOT UPDATED!")
                 ignore = True
 
-            log.info(f"Updated {title} by {artist}")
         if ignore:
             ignore = False
             continue
 
-
+        # Add new line if a playcount is not present
         sql = "INSERT INTO hits (id, artist, title, city, playCount, locationID) VALUES (%s, %s, %s, %s, %s,%s)"
         val = (id, artist, title, city, play_count, location_ID)
         insert_cursor = mydb.cursor()
-        
+
         insert_cursor.execute(sql, val)
         mydb.commit()
-        
+
         log.info(f"Added {title} by {artist}")
 
     mydb.close()
+
+    log.info("Playcounts updated")
 
     return
 

@@ -13,16 +13,16 @@ Every month the process starts all over again and hopefully some new song comes 
 
 * A working and populated [IndieMap](https://github.com/PaaaulZ/IndieMap) database.
 * A Spotify API key.
-* [Mozilla Firefox](https://www.mozilla.org/it/firefox/new/)
-* [Gecko Driver](https://github.com/mozilla/geckodriver/releases)
+* [Google Chrome](https://www.google.com/intl/it_it/chrome/)
+* [Chrome Driver](https://chromedriver.chromium.org/)
 * Python libraries that you can import by using **pip3 install -r requirements.txt**
 
 
 ### INSTRUCTIONS
 
 * Create your database by importing the attached indieguerrabot.sql.
-* Edit config.json with your settings.
-* Place the previously installed geckodriver binary (geckodriver.exe on Windows) in the same folder of IndieGuerraBot.py.
+* Edit config.json.empty with your settings and rename it to config.json.
+* Place the previously downloaded chromedriver binary (chromedriver.exe on Windows) in the same folder of IndieGuerraBot.py.
 * Rename colors.json.empty to colors.json
 
 ### THANKS TO:

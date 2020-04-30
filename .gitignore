@@ -339,8 +339,8 @@ ASALocalRun/
 # BeatPulse healthcheck temp database
 healthchecksdb
 IndieGuerraBot/config.json
-IndieGuerraBot/geckodriver.exe
-IndieGuerraBot/geckodriver.log
+IndieGuerraBot/chromedriver.exe
+IndieGuerraBot/debug.log
 IndieGuerraBot/map.png
 IndieGuerraBot/colors.json
 IndieGuerraBot.sln

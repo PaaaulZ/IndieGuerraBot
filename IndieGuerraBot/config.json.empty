@@ -1,0 +1,13 @@
+{
+  "dbhost": "",
+  "port": "3306",
+  "dbuser": "",
+  "dbpass": "",
+  "dbase": "indieguerrabot",
+  "indiemap_db": "indiemap",
+  "spotifyApiKey": "",
+  "hideMapColorLegend": false,
+  "mapImageWidth": 5300,
+  "mapImageHeight": 9000,
+  "logLevel": 3
+}

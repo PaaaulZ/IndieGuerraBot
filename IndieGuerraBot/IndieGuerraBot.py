@@ -6,6 +6,7 @@ import hashlib
 import logging
 import random
 from time import sleep
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -41,10 +42,12 @@ def main():
 
     log.addHandler(fh)
 
-    # update_score()
-    # generate_owners()
+    update_score()
+    backup_previous_owners()
+    generate_owners()
     result_json = json_for_map()
     download_map(result_json)
+    calculate_differences()
 
 def getlocation_ID(cityName):
 
@@ -112,6 +115,66 @@ def get_play_count(artist,track):
     # Other error, return code -3 (ex: found album, success api call but can't match artist/title in album)
     return -3
 
+def backup_previous_owners():
+    
+    # Backup previous owners to generate differences
+
+    log.info("Backing up previous owners")
+    mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
+    prev_owners_cursor = mydb.cursor(buffered=True)
+    prev_owners_cursor.execute("TRUNCATE TABLE prevProvinceOwners")
+    log.debug("Deleted previous owners")
+    prev_owners_cursor.execute("INSERT INTO prevProvinceOwners SELECT * FROM provinceOwners")
+    mydb.commit()
+    log.info("Backed up previous ownwers")
+
+    return
+
+def calculate_differences():
+    # TODO: This should be done DB side and not here.
+
+    current_time = datetime.today().strftime('%Y%m%d%H%M%S')
+    differences_fp = open('differences.log','a')
+    differences_fp.write(f"{current_time}:\n")
+        
+    log.info("Calculating differences in owners")
+    mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
+    log.debug("Getting provinces")
+    cursor = mydb.cursor(buffered=True)
+    cursor.execute("SELECT DISTINCT province FROM locations GROUP BY province")
+
+    provinces = []
+    for res_province in cursor:
+        provinces.append(res_province[0])
+    log.debug(f"Got {len(provinces)} provinces")
+
+    log.debug("Getting current owners")
+
+    current_owners = {}
+    cursor.execute("SELECT * FROM provinceOwners")
+    for res_owner in cursor:
+        current_owners[res_owner[0]] = res_owner[1]
+
+    log.debug(f"Got {len(current_owners)} current owners")
+    cursor.execute("SELECT * FROM prevProvinceOwners")
+    for res_prev_owner in cursor:
+        # For every previous owner
+        province_tmp = res_prev_owner[0]
+        previous_owner_tmp = res_prev_owner[1]
+        current_owner_tmp = current_owners[province_tmp]
+        if province_tmp in current_owners:
+            # Found current owner for this previous owner
+            if previous_owner_tmp != current_owner_tmp:
+                # Is different?
+                log.info(f"{current_owners[province_tmp].title()} got {province_tmp.title()} from {previous_owner_tmp.title()}")
+                differences_fp.write(f"{current_owners[province_tmp].title()} got {province_tmp.title()} from {previous_owner_tmp.title()}\n")
+
+    differences_fp.write("------------------------------\n")
+    mydb.commit()
+    differences_fp.close()
+
+    return
+
 def generate_owners():
 
     log.info("Generating province owners")
@@ -142,6 +205,8 @@ def json_for_map():
 
     log.info("Generating JSON for map download")
 
+    already_done_artists = []
+
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
     map_cursor = mydb.cursor()
     map_cursor.execute("SELECT province,owner FROM provinceOwners")
@@ -153,6 +218,13 @@ def json_for_map():
     # Opening colors.json to fetch pre-assigned colors.
     colors_json_fp = open('colors.json','r')
     saved_colors = json.load(colors_json_fp)
+    saved_colors_obj = {}
+
+    # Saving existing colors to check for duplicates
+    existing_colors = []
+
+    for artist in saved_colors:
+        existing_colors.append(saved_colors[artist])
 
     final_colors = {}
     province_box = {}
@@ -171,16 +243,31 @@ def json_for_map():
         # Get a color for every province owner (pre-assigned or new random color)
         artist_tmp = res_map[1]
         artists.append(artist_tmp)
+        if artist_tmp in already_done_artists:
+            log.info(f"Skipping {artist_tmp}, already assigned a color")
+            continue
+
+        already_done_artists.append(artist_tmp)
         if artist_tmp not in saved_colors:
             # New random color
             log.debug(f"{artist_tmp} has no color pre-assigned, new color will be {color_palette[used_colors]}")
-            saved_colors['colors'].append({artist_tmp: color_palette[used_colors]})
-            final_colors[artist_tmp] = color_palette[used_colors]
-            used_colors += 1
+            while (color_palette[used_colors] in existing_colors):
+                # If new random color is already used try a new one
+                log.info(f"{color_palette[used_colors]} already used, generating new color")
+                used_colors += 1
+                saved_colors_obj[artist_tmp] = color_palette[used_colors]
+                final_colors[artist_tmp] = color_palette[used_colors]
+            else:
+                # If not already existing just take one
+                saved_colors_obj[artist_tmp] = color_palette[used_colors]
+                final_colors[artist_tmp] = color_palette[used_colors]
+                used_colors += 1
         else:
             # Pre-assigned color
             log.debug(f"{artist_tmp} has pre-assigned color {saved_colors[artist_tmp]}")
             final_colors[artist_tmp] = saved_colors[artist_tmp]
+            
+    saved_colors.update(saved_colors_obj)
 
     # Update JSON if we added new colors
 

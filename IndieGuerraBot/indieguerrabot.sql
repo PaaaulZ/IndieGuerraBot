@@ -7987,6 +7987,15 @@ CREATE TABLE `provinceowners` (
   `province` text NOT NULL,
   `owner` text NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+--
+-- Struttura della tabella `provinceowners`
+--
+
+CREATE TABLE `prevprovinceowners` (
+  `province` text NOT NULL,
+  `owner` text NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

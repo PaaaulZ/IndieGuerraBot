@@ -9,5 +9,12 @@
   "hideMapColorLegend": false,
   "mapImageWidth": 5300,
   "mapImageHeight": 9000,
-  "logLevel": 3
+  "logLevel": 3,
+  "uploadMethod": "ftp",
+  "ftpHost": "",
+  "ftpPort": 21,
+  "ftpUsername": "",
+  "ftpPassword": "",
+  "ftpFolder": "",
+  "copyFolder": ""
 }

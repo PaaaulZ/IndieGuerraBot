@@ -5,8 +5,10 @@ import mysql.connector
 import hashlib
 import logging
 import random
+import ftplib
 from time import sleep
 from datetime import datetime
+from shutil import copyfile
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -48,6 +50,7 @@ def main():
     result_json = json_for_map()
     download_map(result_json)
     calculate_differences()
+    upload_final_files()
     log.info("All done!")
 
 def getlocation_ID(cityName):
@@ -380,6 +383,55 @@ def download_map(json_map):
         log.info('Map saved as map.png')
     else:
         log.error('Cannot find map.png, map not downloaded?')
+
+    return
+
+def upload_final_files():
+
+    if config['uploadMethod'] == 'ftp':
+        log.info(f"Starting FTP upload on {config['ftpHost']}")
+        session = ftplib.FTP(config['ftpHost'],config['ftpUsername'],config['ftpPassword'])
+        # Need to know how many runs are present
+        session.cwd(config['ftpFolder'])
+        # Need to ignore index.htm
+        next_run_id = len(session.nlst()) - 1
+        # Create run folder
+        session.mkd(str(next_run_id))
+        runFolder = f"{config['ftpFolder']}/{str(next_run_id)}"
+        session.cwd(runFolder)
+        log.debug(f"Run folder is {runFolder}")
+        try:
+            # Upload image
+            log.debug('Uploading map.png')
+            map_fp = open('map.png','rb')
+            session.storbinary('STOR map.png', map_fp)
+            map_fp.close()
+            # Upload differences
+            log.debug('Uploading differences.log')
+            differences_fp = open('differences.log','rb')
+            session.storbinary('STOR differences.log', differences_fp)
+            differences_fp.close()
+            log.info(f"Done uploading files, final folder is {runFolder}")
+        except:
+            log.critical('Error uploading files.')
+        session.quit()
+    elif config['uploadMethod'] == 'copy':
+        log.info(f"Starting file copy to {config['copyFolder']}")
+        # Need to ignore index.htm
+        next_run_id = len(os.listdir(config['copyFolder'])) - 1
+        # Create run folder
+        run_folder = f"{config['copyFolder']}/{next_run_id}"
+        os.mkdir(run_folder)
+        # Copy map.png
+        log.debug('Copying map.png')
+        copyfile('map.png',f"{run_folder}/map.png")
+        # Copy differences.log
+        log.debug('Copying differences.log')
+        copyfile('differences.log',f"{run_folder}/differences.log")
+        log.info(f"Done copying, final folder is {run_folder}")
+    else:
+        log.critical(f"Upload method {config['uploadMethod']} is not valid, aborting!")
+        raise Exception(f"Upload method {config['uploadMethod']} is not valid, aborting!")
 
     return
 

@@ -48,6 +48,7 @@ def main():
     result_json = json_for_map()
     download_map(result_json)
     calculate_differences()
+    log.info("All done!")
 
 def getlocation_ID(cityName):
 
@@ -131,11 +132,10 @@ def backup_previous_owners():
     return
 
 def calculate_differences():
-    # TODO: This should be done DB side and not here.
+    # TODO: This should be done DB side and not here, we need a better table structure.
+    # WARNING: differences.log will be overwritten, the file always stores only the LAST run.
 
-    current_time = datetime.today().strftime('%Y%m%d%H%M%S')
-    differences_fp = open('differences.log','a')
-    differences_fp.write(f"{current_time}:\n")
+    differences_fp = open('differences.log','w')
         
     log.info("Calculating differences in owners")
     mydb = mysql.connector.connect(host=config['dbhost'],user=config['dbuser'],passwd=config['dbpass'],database=config['dbase'])
@@ -161,15 +161,14 @@ def calculate_differences():
         # For every previous owner
         province_tmp = res_prev_owner[0]
         previous_owner_tmp = res_prev_owner[1]
-        current_owner_tmp = current_owners[province_tmp]
         if province_tmp in current_owners:
+            current_owner_tmp = current_owners[province_tmp]
             # Found current owner for this previous owner
             if previous_owner_tmp != current_owner_tmp:
                 # Is different?
                 log.info(f"{current_owners[province_tmp].title()} got {province_tmp.title()} from {previous_owner_tmp.title()}")
                 differences_fp.write(f"{current_owners[province_tmp].title()} got {province_tmp.title()} from {previous_owner_tmp.title()}\n")
 
-    differences_fp.write("------------------------------\n")
     mydb.commit()
     differences_fp.close()
 
@@ -418,10 +417,11 @@ def update_score():
                 update_cursor.execute("UPDATE hits SET playCount = " + str(play_count) + " WHERE id = '" + id + "'")
                 mydb.commit()
                 log.info(f"Updated {title} by {artist}")
+                continue
             elif res[0] > 0 and play_count < 0:
                 # If I had a play_count but now I have not, warn me.
                 log.warning(f"{artist} {title} was {str(res[0])} but now is {str(play_count)}. PLAYCOUNT WAS NOT UPDATED!")
-                ignore = True
+                continue
 
         if ignore:
             ignore = False

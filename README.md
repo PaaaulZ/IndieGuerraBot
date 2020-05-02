@@ -24,6 +24,8 @@ Every month the process starts all over again and hopefully some new song comes 
 * Edit config.json.empty with your settings and rename it to config.json.
 * Place the previously downloaded chromedriver binary (chromedriver.exe on Windows) in the same folder of IndieGuerraBot.py.
 * Rename colors.json.empty to colors.json
+* Copy the contents of the **_website** folder on your website.
+* Launch IndieGuerraBot.py.
 
 ### THANKS TO:
 
